@@ -20,6 +20,8 @@ int ready_count = 0, end_count = 0;
 int dead;
 int player_count=0;
 int num_chairs;
+int lap_start = 0;
+int lap_end = 0;
 
 mutex music_start, music_end, player, creation, mus, count_mutex, locking;
 mutex l_s_mutex, m_s_mutex, m_e_mutex, l_e_mutex;
@@ -143,19 +145,32 @@ void usage(int argc, char *argv[])
 }
 
 void umpire_main() {
-
     cout << "umpire \n";
     string command;
     while(nplayers > 1) {    
         cout << nplayers << "\n";
         cin >> command;
+        //lap_start = 0;
+        //lap_end = 0;
         if (command == "ls") {
+            cout << "lap  started \n";
+            {
+                std::lock_guard<std::mutex> lap_s(l_s_mutex);
+                lap_start = 1;
+            }
+            l_s.notify_all();
         }
         else if(command == "ms") {
         }
         else if(command == "mst") {
         }
         else if(command == "lst") {
+            cout << "lap  ended \n";
+            {
+                std::lock_guard<std::mutex> lap_e(l_e_mutex);
+                lap_start = 1;
+            }
+            l_e.notify_all();
         }
     }
 
@@ -171,9 +186,7 @@ void umpire_main() {
     return;
 }
 
-void player_main(int plid) {
-    bool alive = true;
-    while(alive) {
+void player2(int plid, bool &alive) {
         int i = rand() % num_chairs;
         int j = i;
         do{
@@ -199,6 +212,24 @@ void player_main(int plid) {
                 chair_array[i] = false;
             }
         }
+
+        std::unique_lock<std::mutex> lap_e(l_e_mutex);
+        l_e.wait(lap_e, [](){return lap_end;});
+        cout << "gone ahead \n";
+        return;
+}
+void player_main(int plid) {
+    bool alive = true;
+    while(alive) {
+        lap_start = 0;
+        lap_end = 0;
+        if(num_chairs == 0) return;
+        cout << "i am alive \n";
+        std::unique_lock<std::mutex> lap_s(l_s_mutex);
+        l_s.wait(lap_s, [](){return lap_start;});
+        cout << "gone ahead \n";
+        cout << num_chairs << "\n";
+        player2(plid, alive);
     }
     return;
 }
