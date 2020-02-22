@@ -21,18 +21,44 @@ int dead;
 int player_count=0;
 int num_chairs;
 
-mutex music_start, music_end, player, creation, mus, count_mutex;
+mutex music_start, music_end, player, creation, mus, count_mutex, locking;
 mutex l_s_mutex, m_s_mutex, m_e_mutex, l_e_mutex;
-unique_lock<mutex> l_s_lck(l_s_mutex);
-unique_lock<mutex> m_s_lck(m_s_mutex);
-unique_lock<mutex> m_e_lck(m_e_mutex);
-unique_lock<mutex> l_e_lck(l_e_mutex);
+//unique_lock<mutex> l_s_lck(l_s_mutex);
+//unique_lock<mutex> m_s_lck(m_s_mutex);
+//unique_lock<mutex> m_e_lck(m_e_mutex);
+//unique_lock<mutex> l_e_lck(l_e_mutex);
 condition_variable l_s, m_s, m_e, l_e;
 
 bool *chair_array;
 bool *isalive;
 
 mutex *chair;
+
+std::condition_variable cv;
+std::mutex cv_m; // This mutex is used for three purposes:
+                 // 1) to synchronize accesses to i
+                 // 2) to synchronize accesses to std::cerr
+                 // 3) for the condition variable cv
+int i = 0;
+ 
+void waits()
+{
+    std::unique_lock<std::mutex> lk(l_s_mutex);
+    std::cerr << "Waiting... \n";
+    cv.wait(lk, []{return i == 1;});
+    std::cerr << "...finished waiting. i == 1\n";
+}
+ 
+void signals()
+{
+ 
+    {
+        std::lock_guard<std::mutex> lk(l_s_mutex);
+        i = 1;
+        std::cerr << "Notifying again...\n";
+    }
+    cv.notify_all();
+}
 
 void usage(int argc, char *argv[]);
 unsigned long long musical_chairs();
@@ -96,7 +122,7 @@ int main(int argc, char *argv[])
         chair_array[i] = false;
     }
     for(int i = 0;i < nplayers;i++) {
-        chair_array[i] = true;
+        isalive[i] = true;
     }
 
     num_chairs = nplayers - 1;
@@ -116,42 +142,21 @@ void usage(int argc, char *argv[])
     exit(EXIT_FAILURE);
 }
 
-void umpire_main()
-{
-    // [0 : lap start, 1: lap end, 2 : mus start, 3:mus end]
-    // l_s, l_e, m_s, m_e
-    int instr;
-    while(nplayers >= 1) {
-        cin >> instr;
-        if(instr == 0) {
-            m_s.wait(m_s_lck);
-            while(ready_count < nplayers);
-            l_s.notify_all();
-        }
+void umpire_main() {
 
-        if(instr == 2) {
-            m_e.wait(m_e_lck);
-            m_s.notify_all();
+    cout << "umpire \n";
+    string command;
+    while(nplayers > 1) {    
+        cout << nplayers << "\n";
+        cin >> command;
+        if (command == "ls") {
         }
-
-        if(instr == 3) {
-            l_e.wait(l_e_lck);
-            m_e.notify_all();
-            cout << dead;
-            nplayers--;
-            num_chairs--;
-            for(int i = 0;i < nplayers - 1;i++) {
-                chair_array[i] = false;
-            }
+        else if(command == "ms") {
         }
-
-        if(instr == 1) {
-            l_s.wait(l_s_lck);
-            while(nplayers > end_count);
-            ready_count = 0;
-            l_e.notify_all();
+        else if(command == "mst") {
         }
-
+        else if(command == "lst") {
+        }
     }
 
     if(nplayers == 1) {
@@ -163,27 +168,19 @@ void umpire_main()
         }
     }
 
-	return;
+    return;
 }
 
-void player_main(int plid)
-{
+void player_main(int plid) {
     bool alive = true;
     while(alive) {
-        count_mutex.lock();
-        ready_count++;
-        count_mutex.unlock();
-        l_s.wait(l_s_lck);
-        m_s.wait(m_s_lck);
-        //sleep(s[plid]);
-        m_e.wait(m_e_lck);
         int i = rand() % num_chairs;
         int j = i;
-
         do{
             if (chair[j].try_lock()) {
                 if(chair_array[j] == false) {
                     chair_array[j] = true;
+                    cout << j << "\n";
                     alive = true;
                     break;
                 }
@@ -196,13 +193,14 @@ void player_main(int plid)
             alive = false;
             dead = plid;
             isalive[plid] = false;
+            nplayers--;
+            num_chairs--;
+            for(int i = 0;i < nplayers - 1;i++) {
+                chair_array[i] = false;
+            }
         }
-        count_mutex.lock();
-        end_count++;
-        count_mutex.unlock();
-        l_e.wait(l_e_lck);
     }
-	return;
+    return;
 }
 
 unsigned long long musical_chairs()
@@ -210,19 +208,23 @@ unsigned long long musical_chairs()
 	auto t1 = chrono::steady_clock::now();
 
     thread umpire;
-    umpire = thread (umpire_main);
+    umpire = thread(umpire_main);
 
 	// Spawn umpire thread.
     /* Add your code here */
     thread players[nplayers];
-    for (int i=0; i<nplayers; i++) {
+    int id[nplayers];
+    for(int i = 0;i < nplayers;i++) {
+        id[i] = i;
+    }
+    for (int i=nplayers - 1; i >= 0; i--) {
         players[i] = thread(player_main, i);
     }
     for (int i=0; i<nplayers; i++) {
         players[i].join();
     };
 	// Spawn n player threads.
-    umpire.join();
+    //umpire.join();
     /* Add your code here */
 
 	auto t2 = chrono::steady_clock::now();
